@@ -1,4 +1,3 @@
-import { ApifyClient } from "apify-client";
 import type { ScrapeRequest } from "@/types/scrape";
 import type { Lead } from "@/types/lead";
 
@@ -8,8 +7,16 @@ const ACTORS: Record<string, string> = {
   linkedin: "apify/linkedin-profile-scraper",
 };
 
-// Initialize Apify client with token from environment
-const client = new ApifyClient({ token: process.env.APIFY_TOKEN });
+// Lazy load ApifyClient to avoid bundler issues
+let clientInstance: any = null;
+
+async function getApifyClient() {
+  if (!clientInstance) {
+    const { ApifyClient } = await import("apify-client");
+    clientInstance = new ApifyClient({ token: process.env.APIFY_TOKEN });
+  }
+  return clientInstance;
+}
 
 /**
  * Scrape prospects from Instagram or LinkedIn using Apify Actors
@@ -32,6 +39,9 @@ export async function scrapeProspects(
   }
 
   try {
+    // Get Apify client instance
+    const client = await getApifyClient();
+
     // Call the Actor with the search term and result limit
     const run = await client.actor(actorId).call({
       searchTerms: [request.keyword],

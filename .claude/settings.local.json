@@ -3,7 +3,14 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npm test:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/brunopender/prospect-clinic/main/package.json\")",
+      "Bash(curl -s -X POST https://novo-projeto-nu.vercel.app/api/scrape -H 'Content-Type: application/json' -d '{\"platform\":\"instagram\",\"keyword\":\"teste\",\"limit\":10}')",
+      "Bash(curl -s -X POST https://novo-projeto-nu.vercel.app/api/scrape -H 'Content-Type: application/json' -d '{\"platform\":\"instagram\",\"keyword\":\"clínica odontológica\",\"limit\":10}')",
+      "Bash(curl -s -X POST https://novo-projeto-nu.vercel.app/api/scrape -H 'Content-Type: application/json' -d '{\"platform\":\"instagram\",\"keyword\":\"clínica odontológica\",\"limit\":15}')",
+      "Bash(curl -s -X POST https://novo-projeto-nu.vercel.app/api/scrape -H 'Content-Type: application/json' -d '{\"platform\":\"instagram\",\"keyword\":\"consultório\",\"limit\":10}')",
+      "Bash(curl:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('SHA:', d['sha'][:10], 'Message:', d['commit']['message'][:60]\\)\")"
     ]
   },
   "hooks": {

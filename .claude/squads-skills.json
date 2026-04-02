@@ -1,0 +1,140 @@
+{
+  "squads": {
+    "apex": {
+      "command": "/apex-chief",
+      "agent": "@apex-chief",
+      "description": "Ativar Squad Apex - Frontend Ultra-Premium",
+      "path": "squads/apex",
+      "category": "frontend",
+      "status": "OPERATIONAL"
+    },
+    "brand": {
+      "command": "/brand-chief",
+      "agent": "@brand-chief",
+      "description": "Ativar Squad Brand - Branding Elite",
+      "path": "squads/brand",
+      "category": "marketing",
+      "status": "DEVELOPING"
+    },
+    "curator": {
+      "command": "/curator-chief",
+      "agent": "@curator-chief",
+      "description": "Ativar Squad Curator - Curadoria de Conteúdo",
+      "path": "squads/curator",
+      "category": "content",
+      "status": "DEVELOPING"
+    },
+    "deep-research": {
+      "command": "/deep-research-chief",
+      "agent": "@deep-research-chief",
+      "description": "Ativar Squad Deep Research - Pesquisa Profunda",
+      "path": "squads/deep-research",
+      "category": "research",
+      "status": "OPERATIONAL"
+    },
+    "dispatch": {
+      "command": "/dispatch-chief",
+      "agent": "@dispatch-chief",
+      "description": "Ativar Squad Dispatch - Execução Paralela",
+      "path": "squads/dispatch",
+      "category": "orchestration",
+      "status": "DEVELOPING"
+    },
+    "education": {
+      "command": "/education-chief",
+      "agent": "@education-chief",
+      "description": "Ativar Squad Education - Sistema de Aprendizado",
+      "path": "squads/education",
+      "category": "learning",
+      "status": "DEVELOPING"
+    },
+    "kaizen": {
+      "command": "/kaizen-chief",
+      "agent": "@kaizen-chief",
+      "description": "Ativar Squad Kaizen - Melhoria Contínua",
+      "path": "squads/kaizen",
+      "category": "quality",
+      "status": "DEVELOPING"
+    },
+    "kaizen-v2": {
+      "command": "/kaizen-v2-chief",
+      "agent": "@kaizen-v2-chief",
+      "description": "Ativar Squad Kaizen V2 - Sistema Nervoso do Projeto",
+      "path": "squads/kaizen-v2",
+      "category": "quality",
+      "status": "OPERATIONAL"
+    },
+    "legal-analyst": {
+      "command": "/legal-analyst-chief",
+      "agent": "@legal-analyst-chief",
+      "description": "Ativar Squad Legal Analyst - Análise Jurídica Processual",
+      "path": "squads/legal-analyst",
+      "category": "legal",
+      "status": "OPERATIONAL"
+    },
+    "seo": {
+      "command": "/seo-chief",
+      "agent": "@seo-chief",
+      "description": "Ativar Squad SEO - Otimização SEO Pós-Design",
+      "path": "squads/seo",
+      "category": "marketing",
+      "status": "DEVELOPING"
+    },
+    "squad-creator": {
+      "command": "/AIOX:agents:squad-creator",
+      "agent": "@squad-creator",
+      "description": "Ativar Squad Creator Premium - Fábrica de Squads com Mind Cloning (v3.0)",
+      "path": "squads/squad-creator",
+      "category": "meta",
+      "status": "OPERATIONAL",
+      "tier": "premium",
+      "agents": ["squad-chief", "oalanicolas", "pedro-valerio"],
+      "tasks": 42
+    },
+    "design": {
+      "command": "/AIOX:agents:design",
+      "agent": "@design",
+      "description": "Ativar Design Squad — 10 Elite Minds para Visual Design",
+      "path": "squads/design",
+      "category": "design",
+      "status": "OPERATIONAL",
+      "agents": ["design-chief", "marty-neumeier", "dave-malouf", "chris-do", "paddy-galloway", "joe-mcnally", "brad-frost", "aaron-draplin", "peter-mckinnon", "premium-design"],
+      "tasks": 67
+    },
+    "squad-creator-pro": {
+      "command": "/squad-creator-pro-chief",
+      "agent": "@squad-creator-pro-chief",
+      "description": "Ativar Squad Creator Pro - Fábrica de Squads Premium",
+      "path": "squads/squad-creator-pro",
+      "category": "meta",
+      "status": "OPERATIONAL"
+    }
+  },
+  "categories": {
+    "frontend": "Squads de desenvolvimento frontend",
+    "marketing": "Squads de marketing e branding",
+    "content": "Squads de conteúdo",
+    "research": "Squads de pesquisa e análise",
+    "orchestration": "Squads de orquestração",
+    "learning": "Squads de educação e aprendizado",
+    "quality": "Squads de qualidade e melhoria",
+    "legal": "Squads jurídicos",
+    "meta": "Squads meta-framework (criadores de squads)",
+    "design": "Squads de design visual e sistemas de design"
+  },
+  "activation": {
+    "syntax": {
+      "slash_command": "/squad-name-chief",
+      "agent_mention": "@squad-name-chief",
+      "aiox_command": "*activate-squad squad-name"
+    },
+    "example": {
+      "slash": "/brand-chief",
+      "agent": "@brand-chief",
+      "aiox": "*activate-squad brand"
+    }
+  },
+  "version": "1.0",
+  "updated_at": "2026-04-01",
+  "total_squads": 12
+}

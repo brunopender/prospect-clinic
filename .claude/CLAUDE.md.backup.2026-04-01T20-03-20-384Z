@@ -1,0 +1,613 @@
+# CLAUDE.md — Clinic Prospect
+
+> \*\*O que é este arquivo:\*\* Documento-mestre do projeto. Toda decisão de arquitetura, padrão de código, regra de negócio e contexto de domínio está aqui. Claude Code deve consultar este arquivo antes de qualquer implementação. Se algo não está aqui, pergunte antes de assumir.
+
+\---
+
+## 1\. IDENTIDADE DO PROJETO
+
+* **Nome:** \[NomeDoProduto]
+* **Tipo:** SaaS B2B de prospecção e inteligência comercial
+* **Missão:** Encontrar clínicas odontológicas e estéticas + identificar seus decisores (donos, gerentes, supervisores, coordenadores) através de dados públicos do Instagram e Google, entregando listas qualificadas de leads.
+* **Problema:** Vendedores de equipamentos, insumos, softwares e serviços para clínicas perdem horas procurando leads manualmente. Este SaaS automatiza descoberta, qualificação e organização desses contatos.
+* **Proposta de valor:** "De uma busca por região e segmento até uma lista exportável de decisores com contato — em minutos, não dias."
+
+### Público-Alvo
+
+|Persona|Dor Principal|
+|-|-|
+|Vendedor de equipamentos odontológicos|Encontrar donos de clínicas novas ou em expansão|
+|Consultor de marketing para saúde|Lista segmentada de clínicas para prospectar|
+|Distribuidor de insumos estéticos|Identificar clínicas de estética e seus responsáveis|
+|SaaS de gestão para clínicas|Contatos de decisores (gerentes, donos)|
+|Vendedor de cursos/treinamentos|Alcançar profissionais com poder de compra|
+
+### O Que o Produto NÃO É
+
+* Não é CRM (não gerencia pipeline, apenas entrega leads)
+* Não é ferramenta de automação de mensagens (não envia DMs/emails/mensagens)
+* Não é scraper genérico (verticalmente focado em clínicas odonto/estética)
+* Não é ferramenta de espionagem (coleta apenas dados publicamente disponíveis)
+
+\---
+
+## 2\. STACK TÉCNICA
+
+### Backend
+
+|Componente|Tecnologia|Versão|
+|-|-|-|
+|Linguagem|Python|3.12+|
+|Framework API|FastAPI|0.110+|
+|ORM|SQLAlchemy 2.0+ (async)|Migrations: Alembic|
+|Fila de Tarefas|Celery + Redis|5.3+|
+|Cache|Redis 7+|Cache, rate limiting, sessões|
+|Banco de Dados|PostgreSQL 16+|JSONB, full-text search|
+|Validação|Pydantic 2.0+|—|
+|HTTP Client|httpx 0.27+|Async, HTTP/2, proxy support|
+
+### Frontend
+
+|Componente|Tecnologia|
+|-|-|
+|Framework|Next.js 14+ (App Router)|
+|Estilização|Tailwind CSS 3.4+|
+|Componentes|shadcn/ui|
+|State|Zustand 4+|
+|Forms|React Hook Form + Zod|
+|Data Fetching|TanStack Query 5+|
+|Tabelas|TanStack Table 8+|
+
+### Infraestrutura
+
+|Componente|Tecnologia|
+|-|-|
+|Hosting Backend|\[Railway / Render / VPS]|
+|Hosting Frontend|Vercel|
+|Banco de Dados|Supabase / Neon / RDS (PostgreSQL managed)|
+|Object Storage|S3 / R2 (Cloudflare)|
+|Proxy Rotativo|\[BrightData / Oxylabs / SmartProxy] — obrigatório para scraping|
+|Monitoramento|Sentry (erros) + Axiom/Betterstack (logs)|
+|CI/CD|GitHub Actions|
+
+### Serviços Externos
+
+|Serviço|Uso|
+|-|-|
+|Google Places API|Busca de clínicas por região|
+|SerpAPI / ScraperAPI|Fallback para Google search|
+|Instagram (não oficial)|Perfis públicos via scraping + proxy|
+|Hunter.io / Snov.io|Descoberta de emails corporativos|
+|Anthropic / OpenAI API|Classificação de cargos, extração de entidades|
+|Resend / Postmark|Emails transacionais|
+|Stripe|Pagamentos e gestão de planos|
+
+\---
+
+## 3\. ARQUITETURA
+
+### Visão Macro
+
+```
+\[Usuário] → \[Frontend Next.js] → \[API FastAPI] → \[PostgreSQL]
+                                       ↓
+                               \[Celery Workers]
+                              /        |        \\
+                    \[Google Scraper] \[IG Scraper] \[Enrichment]
+                         ↓                ↓            ↓
+                    \[Proxy Pool]    \[Proxy Pool]  \[APIs Externas]
+                              → \[PostgreSQL] ←
+```
+
+**Padrão:** Modular Monolith — módulos separados por domínio com interfaces claras, deployados como unidade. Migração para microserviços facilitada se necessário.
+
+### Estrutura de Pastas
+
+```
+backend/
+├── alembic/versions/
+├── app/
+│   ├── main.py                      # Entrypoint FastAPI
+│   ├── config.py                    # Settings via pydantic-settings
+│   ├── dependencies.py              # DI (DB session, current\_user)
+│   ├── core/                        # auth/, billing/, queue/, proxy/, rate\_limiter/, exceptions/
+│   ├── modules/                     # Domínio (cada um: models, schemas, router, service, repository)
+│   │   ├── clinics/                 # + tags
+│   │   ├── contacts/                # + classifier.py
+│   │   ├── campaigns/
+│   │   ├── prospect\_lists/          # + exporters/ (csv, xlsx, webhook)
+│   │   └── users/
+│   ├── scrapers/                    # base.py, google\_places.py, google\_search.py, instagram.py, gmb.py
+│   ├── enrichment/                  # pipeline.py, email\_finder, phone\_extractor, role\_classifier, deduplicator
+│   └── workers/                     # scraping\_tasks, enrichment\_tasks, export\_tasks, maintenance\_tasks
+├── tests/                           # conftest, factories/, unit/, integration/, e2e/
+├── scripts/                         # seed, test\_proxies
+├── Dockerfile, pyproject.toml, alembic.ini
+
+frontend/
+├── src/
+│   ├── app/                         # Next.js App Router
+│   │   ├── (auth)/                  # login/, register/
+│   │   ├── (dashboard)/             # campaigns/, clinics/, contacts/, lists/, exports/, settings/
+│   ├── components/                  # ui/, forms/, tables/, maps/, charts/
+│   ├── hooks/, lib/, stores/, types/
+├── next.config.js, tailwind.config.ts, package.json
+
+docker-compose.yml, .env.example, .github/workflows/, CLAUDE.md
+```
+
+\---
+
+## 4\. MODELOS DE DADOS
+
+### Clinic
+
+|Campo|Tipo|Notas|
+|-|-|-|
+|id|UUID (PK)|—|
+|tenant\_id|UUID (FK)|—|
+|name, trade\_name|str|Nome e nome fantasia|
+|cnpj|str?|Formato XX.XXX.XXX/XXXX-XX|
+|segment|enum|ODONTOLOGIA, ESTETICA, AMBOS|
+|subsegment|str?|"ortodontia", "harmonização facial"|
+|address\_\*|str/float|street, number, complement, neighborhood, city, state(2), zip, lat, lng|
+|phone\_primary, phone\_whatsapp|str?|Formato E.164|
+|email, website|str?|—|
+|instagram\_handle|str?|Sem @|
+|instagram\_followers, instagram\_bio|int?/text?|—|
+|google\_place\_id|str?|ID do Google Places|
+|google\_rating|float?|1.0 a 5.0|
+|google\_reviews\_count|int?|—|
+|source|enum|GOOGLE\_PLACES, INSTAGRAM, GOOGLE\_SEARCH, MANUAL|
+|source\_url|str?|URL de origem|
+|status|enum|ACTIVE, INACTIVE, CLOSED, UNVERIFIED|
+|data\_quality\_score|float|0.0 a 1.0|
+|last\_scraped\_at, last\_enriched\_at|datetime?|—|
+|**Relations:** contacts\[], scrape\_logs\[], tags\[]|||
+
+### Contact (Decisor)
+
+|Campo|Tipo|Notas|
+|-|-|-|
+|id|UUID (PK)|—|
+|clinic\_id, tenant\_id|UUID (FK)|—|
+|full\_name, first\_name, last\_name|str|—|
+|role|enum|OWNER, PARTNER, MANAGER, SUPERVISOR, COORDINATOR, DIRECTOR, UNKNOWN|
+|role\_raw|str?|Texto original ("Sócio-Proprietário")|
+|role\_confidence|float|0.0 a 1.0|
+|title, specialization|str?|"Dr.", "CRO-BA 12345" / "Ortodontia"|
+|email|str?|—|
+|email\_status|enum|VERIFIED, UNVERIFIED, BOUNCED, CATCH\_ALL|
+|phone|str?|phone\_whatsapp: bool?|
+|instagram\_handle, linkedin\_url|str?|—|
+|source|enum|INSTAGRAM\_BIO, GOOGLE\_OWNER, WEBSITE\_ABOUT, MANUAL, LLM\_EXTRACTION|
+|is\_primary\_contact|bool|—|
+
+### Campaign
+
+|Campo|Tipo|Notas|
+|-|-|-|
+|id, tenant\_id, user\_id|UUID|—|
+|name|str|"Clínicas Odonto Salvador - Centro"|
+|status|enum|DRAFT, RUNNING, PAUSED, COMPLETED, FAILED|
+|segment\_filter, subsegment\_filter|enum?/list|—|
+|location\_\*|str/float|city, state, neighborhood, radius\_km, lat, lng|
+|sources\_enabled|list\[enum]|Quais fontes usar|
+|keywords|list\[str]|Termos adicionais|
+|min\_google\_rating, min\_instagram\_followers|float?/int?|Filtros opcionais|
+|role\_filter|list\[enum]?|Quais cargos buscar|
+|clinics\_found, contacts\_found, progress\_percent|int/float|Progresso|
+|prospect\_list\_id|UUID? (FK)|Lista gerada|
+
+### ProspectList
+
+Campos: id, tenant\_id, campaign\_id?, name, description?, type (CAMPAIGN\_RESULT/MANUAL/FILTERED), clinic\_count, contact\_count, items\[], exports\[].
+
+### Tenant / User
+
+**Tenant:** id, name, slug (unique), plan (FREE/STARTER/PROFESSIONAL/ENTERPRISE), plan\_limits (JSONB), stripe\_customer\_id, stripe\_subscription\_id, trial\_ends\_at, users\[].
+
+**User:** id, tenant\_id, email (unique), password\_hash, full\_name, role (ADMIN/MEMBER/VIEWER), is\_active, last\_login\_at.
+
+\---
+
+## 5\. LÓGICA DE SCRAPING
+
+### 5.1 Google Places / Google Business
+
+**Fluxo:** Montar query (`"clínica odontológica" + cidade/bairro`) → Iterar resultados paginados → Extrair (nome, endereço, telefone, website, rating, reviews, place\_id, coordenadas) → Buscar Place Details → Tentar extrair dono do GMB.
+
+**Termos padrão:** Odonto: "dentista", "clínica odontológica", "ortodontista", "implante dentário". Estética: "clínica de estética", "harmonização facial", "dermatologista estético".
+
+**Rate Limits:** Respeitar quota da API key. Exponential backoff em 429/500. Cache place\_id → details por 7 dias.
+
+### 5.2 Instagram
+
+**IMPORTANTE:** Sem API pública. Scraping de dados públicos via proxy rotativo. Módulo mais frágil — implementar com máxima cautela.
+
+**Descoberta de Clínicas:** Buscar por hashtags (#dentista+cidade), nome (extraído do Google), localização. Extrair: username, bio, website, followers, categoria, contatos.
+
+**Identificação de Decisores:**
+
+1. Bio da clínica: "Dr.", "Dra.", "Proprietário(a)", "Fundador(a)"
+2. Posts/highlights: "equipe", "time", "fundador(a)"
+3. Marcações em fotos: perfis profissionais marcados repetidamente
+4. Link na bio → scrape do site para página "Equipe/Sobre"
+5. LLM para classificação de cargo
+
+**Proteções Anti-Bloqueio (obrigatórias):**
+
+* Proxy rotativo **residencial** (nunca datacenter)
+* Delay randômico 3-8s entre requests
+* Sessões com cookies persistentes
+* Rotação de User-Agent realista
+* Limite: máximo 200 perfis/dia por sessão
+* Circuit breaker: 3 bloqueios em 1h → parar por 6h
+
+### 5.3 Google Search (Complementar)
+
+Buscar `"clínica \[cidade]" site:instagram.com` para perfis IG. Buscar `"\[nome clínica]" "equipe" OR "sobre"` para decisores. Buscar `"\[nome clínica]" linkedin.com` para LinkedIn.
+
+### 5.4 Classe Base de Scraper
+
+Todo scraper herda de `BaseScraper`: retry com exponential backoff (max 3), rotação automática de proxy, logging estruturado, rate limiting por fonte, timeout 30s, error handling categorizado (BLOCKED/TIMEOUT/NOT\_FOUND/RATE\_LIMITED/UNKNOWN), métricas de sucesso/falha.
+
+\---
+
+## 6\. REGRAS DE NEGÓCIO
+
+### 6.1 Classificação de Decisores
+
+**Cargos que qualificam:** Dono/Proprietário/Titular, Sócio, Gerente, Supervisor, Coordenador, Diretor (Clínico/Administrativo/Técnico), CEO/CFO/COO, Responsável Técnico (RT).
+
+**Confiança por fonte:**
+
+* Google Business "Owner" → 0.95
+* Bio Instagram com cargo explícito → 0.85
+* Website página "Sobre/Equipe" → 0.80
+* LLM analysis → 0.60-0.75
+* Inferência por CRO na bio → 0.50
+
+**Merge:** Se fontes concordam: `max(fontes) + 0.05 \* (n\_fontes - 1)`, cap 0.99. Se discordam: manter maior confiança, logar conflito.
+
+### 6.2 Deduplicação
+
+Clínica é duplicata se QUALQUER condição for true: mesmo CNPJ | mesmo google\_place\_id | mesmo instagram\_handle | mesmo telefone + mesma cidade | nome similar (Levenshtein ≥ 0.85) + mesmo CEP/bairro | mesmo website (domínio base).
+
+**Merge:** Manter registro com maior `data\_quality\_score`. Complementar campos nulos. Nunca sobrescrever verificado com não-verificado. Logar merge.
+
+### 6.3 Data Quality Score (0.0 a 1.0)
+
+name: 0.05 | segment: 0.05 | phone: 0.10 (+0.05 verificado) | email: 0.10 (+0.05 verificado) | address completo: 0.10 | website: 0.05 | instagram: 0.05 (+0.05 se >500 seg) | google\_place\_id: 0.05 | google\_rating: 0.05 | ≥1 decisor: 0.15 | decisor com email: 0.05 | decisor com telefone: 0.05 | fonte verificada: 0.05
+
+### 6.4 Limites por Plano
+
+|Recurso|Free|Starter|Professional|Enterprise|
+|-|-|-|-|-|
+|Campanhas/mês|2|10|50|∞|
+|Clínicas/campanha|50|200|1000|∞|
+|Exports/mês|1|10|∞|∞|
+|Max rows/export|25|500|5000|∞|
+|Fontes|Google Places|+Google Search|+Instagram|Todas|
+|Enriquecimento|✗|✗|✓|✓|
+|API access|✗|✗|✓|✓|
+
+### 6.5 Regras LGPD
+
+* **Base legal:** Legítimo interesse (Art. 7, IX) para dados públicos de perfis profissionais/comerciais.
+* **Remoção:** Endpoint público `POST /api/v1/data-removal-request`. Prazo: 15 dias úteis.
+* **NUNCA armazenar:** CPF de pessoa física, dados de saúde de pacientes, fotos pessoais, mensagens privadas, dados de menores.
+* **Retenção:** Dados expiram em 12 meses sem re-verificação. Excluídos após 18 meses.
+* **Termos de Uso:** Cliente é corresponsável. Proibir spam, assédio, uso ilegal.
+
+\---
+
+## 7\. FLUXOS PRINCIPAIS
+
+### Campanha → Lista de Leads
+
+1. Usuário cria campanha com filtros → API valida limites → Campaign(DRAFT)
+2. Enfileira tasks → Campaign(RUNNING)
+3. Worker Google: busca clínicas → salva Clinic\[]
+4. Worker Instagram: busca perfis, enriquece → salva/atualiza Clinic\[]
+5. Worker Enrichment: extrai decisores (bio, site, LLM), busca email/telefone → Contact\[]
+6. Worker Dedup: merge duplicatas → Worker Score: calcula quality score
+7. Monta ProspectList → Campaign(COMPLETED) → Notifica frontend via SSE/WebSocket
+
+### Exportação
+
+1. Usuário seleciona lista/filtros → API verifica limites do plano
+2. Enfileira ExportTask → Worker monta CSV/XLSX → Upload S3/R2 (URL assinada, TTL 24h)
+3. Email ao usuário com link → Registra Export no banco
+
+### Re-Scraping (Manutenção)
+
+Cron diário 03:00 UTC → Clínicas com last\_scraped\_at > 30 dias → Re-verifica Google/Instagram → Atualiza dados → Recalcula score → Marca STALE após 90 dias sem verificação
+
+\---
+
+## 8\. API — CONVENÇÕES E ENDPOINTS
+
+### Convenções
+
+* **Base:** `/api/v1/` | **Auth:** Bearer JWT | **Multi-tenancy:** Tenant do JWT
+* **Paginação:** `?page=1\&page\_size=25` (max 100) | **Ordenação:** `?sort\_by=created\_at\&sort\_order=desc`
+* **Response:** `{ "data": ..., "meta": { page, page\_size, total, total\_pages }, "errors": null }`
+* **Erro:** `{ "data": null, "errors": \[{ "code": "PLAN\_LIMIT\_EXCEEDED", "message": "...", "details": {...} }] }`
+
+### Endpoints
+
+```
+AUTH:    POST /auth/register|login|refresh|forgot-password|reset-password
+
+CAMPAIGNS:
+  GET|POST       /campaigns
+  GET|DELETE      /campaigns/:id
+  POST            /campaigns/:id/start|pause|resume
+
+CLINICS:
+  GET             /clinics              # Filtros: segment, city, min\_rating, etc.
+  GET|PATCH       /clinics/:id
+  POST|DELETE     /clinics/:id/tags\[/:tag\_id]
+
+CONTACTS:
+  GET             /contacts             # Filtros: role, clinic\_id, etc.
+  GET|PATCH       /contacts/:id
+
+LISTS:
+  GET|POST        /lists
+  GET             /lists/:id
+  POST|DELETE     /lists/:id/items\[/:item\_id]
+  POST            /lists/:id/export
+
+EXPORTS:  GET /exports | GET /exports/:id/download
+BILLING:  GET /billing/plan | POST /billing/checkout|portal
+WEBHOOKS: POST /webhooks/stripe
+COMPLIANCE: POST /data-removal-request (público, sem auth)
+ADMIN:    GET|PATCH /settings | GET|POST /users | PATCH|DELETE /users/:id
+```
+
+\---
+
+## 9\. CONVENÇÕES DE CÓDIGO
+
+### Python (Backend)
+
+* **Formatter/Lint:** Ruff | **Types:** mypy strict | **Docstrings:** Google style (classes e funções públicas)
+* **Naming:** snake\_case (variáveis, funções, módulos). PascalCase (classes). UPPER\_SNAKE (constantes).
+* **Async:** Todas as rotas e services DEVEM ser async. Sync apenas em utilities puras.
+* **Errors:** NUNCA `except Exception` genérico. Exceções de negócio herdam de `AppException`.
+* **Logging:** `structlog` com contexto (tenant\_id, user\_id, campaign\_id). NUNCA `print()`.
+* **Testes:** pytest + pytest-asyncio. Cobertura: 80% services, 100% regras críticas.
+* **Deps:** `uv`. Lockfile commitado.
+
+### TypeScript (Frontend)
+
+* **Formatter/Lint:** Biome | **Types:** strict mode, NUNCA `any` (usar `unknown`).
+* **Naming:** camelCase (variáveis, funções). PascalCase (componentes, tipos). UPPER\_SNAKE (constantes).
+* **Componentes:** Functional + hooks only. Um componente por arquivo = PascalCase.
+* **CSS:** Tailwind inline. Exceção: animações complexas em CSS modules.
+* **Data:** TanStack Query hooks. NUNCA `useEffect` para fetch. Forms: RHF + Zod.
+
+### Ambos
+
+* **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`)
+* **Branches:** `main` (prod), `develop` (staging), `feat/xxx`, `fix/xxx`. PR obrigatório para `main`.
+* **Secrets:** NUNCA hardcoded. Sempre `.env` (nunca commitado).
+
+\---
+
+## 10\. VARIÁVEIS DE AMBIENTE
+
+```bash
+# APP
+APP\_ENV=development  # development|staging|production
+APP\_SECRET\_KEY=      # JWT e hashing
+APP\_FRONTEND\_URL=http://localhost:3000
+APP\_BACKEND\_URL=http://localhost:8000
+
+# DATABASE
+DATABASE\_URL=postgresql+asyncpg://user:pass@localhost:5432/dbname
+
+# REDIS / CELERY
+REDIS\_URL=redis://localhost:6379/0
+CELERY\_BROKER\_URL=redis://localhost:6379/1
+
+# GOOGLE
+GOOGLE\_PLACES\_API\_KEY=
+SERPAPI\_API\_KEY=
+
+# INSTAGRAM
+INSTAGRAM\_SESSION\_IDS=       # Sessões rotativas, separadas por vírgula
+INSTAGRAM\_PROXY\_POOL\_URL=
+
+# PROXIES
+PROXY\_PROVIDER=              # brightdata|oxylabs|smartproxy
+PROXY\_USERNAME=
+PROXY\_PASSWORD=
+PROXY\_ENDPOINT=
+
+# AI / LLM
+ANTHROPIC\_API\_KEY=
+OPENAI\_API\_KEY=              # Fallback
+
+# EMAIL
+RESEND\_API\_KEY=
+EMAIL\_FROM=noreply@\[dominio].com
+
+# PAYMENTS
+STRIPE\_SECRET\_KEY=
+STRIPE\_WEBHOOK\_SECRET=
+STRIPE\_PRICE\_STARTER=price\_xxx
+STRIPE\_PRICE\_PROFESSIONAL=price\_xxx
+STRIPE\_PRICE\_ENTERPRISE=price\_xxx
+
+# STORAGE
+S3\_BUCKET\_NAME=
+S3\_ACCESS\_KEY=
+S3\_SECRET\_KEY=
+S3\_ENDPOINT\_URL=             # Para R2/MinIO
+
+# ENRICHMENT
+HUNTER\_API\_KEY=
+SNOV\_API\_KEY=
+
+# MONITORING
+SENTRY\_DSN=
+LOG\_LEVEL=INFO
+```
+
+\---
+
+## 11\. COMANDOS DO PROJETO
+
+```bash
+# SETUP
+docker compose up -d                                     # Postgres, Redis
+cd backend \&\& uv sync                                    # Deps Python
+cd frontend \&\& npm install                               # Deps Node
+
+# BACKEND
+uv run uvicorn app.main:app --reload                     # API
+uv run celery -A app.core.queue worker --loglevel=info   # Worker
+uv run celery -A app.core.queue beat --loglevel=info     # Scheduler
+uv run alembic upgrade head                              # Migrations
+uv run alembic revision --autogenerate -m "desc"         # Nova migration
+uv run pytest --cov=app                                  # Testes
+uv run ruff check . \&\& uv run ruff format .              # Lint + Format
+uv run mypy app/                                         # Type check
+
+# FRONTEND
+npm run dev | npm run build | npm run lint | npm run type-check
+```
+
+\---
+
+## 12\. RESTRIÇÕES E PROIBIÇÕES
+
+1. **NUNCA** hardcodar secrets no código. Sempre variáveis de ambiente.
+2. **NUNCA** fazer scraping sem proxy rotativo.
+3. **NUNCA** ignorar rate limits de qualquer fonte.
+4. **NUNCA** armazenar CPF, dados de pacientes, fotos de pessoas, dados de menores.
+5. **NUNCA** usar `print()` — sempre `structlog`.
+6. **NUNCA** usar `except Exception` genérico.
+7. **NUNCA** usar `any` em TypeScript.
+8. **NUNCA** fazer fetch em `useEffect` — usar TanStack Query.
+9. **NUNCA** commitar `.env`.
+10. **NUNCA** criar endpoint sem auth (exceto auth/register, auth/login, data-removal-request, webhooks com assinatura).
+11. **NUNCA** retornar dados de outro tenant. Toda query filtra por `tenant\_id` do JWT.
+12. **NUNCA** ignorar tipagem (mypy strict, tsconfig strict).
+13. **NUNCA** deploy direto para `main` — sempre PR.
+14. **NUNCA** senhas em texto plano — bcrypt/argon2.
+15. **NUNCA** confiar em input do client sem validar (Pydantic/Zod).
+
+\---
+
+## 13\. DECISÕES TÉCNICAS
+
+|Decisão|Alternativa|Rationale|
+|-|-|-|
+|Modular Monolith|Microserviços|Complexidade prematura. Fácil migrar depois.|
+|FastAPI|Django REST|Async nativo, melhor para I/O-bound (scraping).|
+|Celery|Dramatiq, Huey|Ecossistema maduro, monitoring (Flower), retry robusto.|
+|PostgreSQL JSONB|MongoDB|Relações importam (clinic↔contact). JSONB para semi-estruturado.|
+|shadcn/ui|MUI, Chakra|Copiado (não deps), customizável, acessível.|
+|Stripe|PagSeguro|Padrão global SaaS. Gateway BR (boleto/PIX) adicionável depois.|
+
+\---
+
+## 14\. CONTEXTO DE DOMÍNIO
+
+### Glossário
+
+|Termo|Significado|
+|-|-|
+|Clínica|Estabelecimento físico de odontologia ou estética|
+|Decisor|Pessoa com poder de decisão de compra (dono, gerente, diretor)|
+|Lead|Par clínica + decisor pronto para abordagem comercial|
+|Campanha|Configuração de busca (região + segmento + fontes)|
+|GMB|Google My Business / Google Business Profile|
+|CRO|Conselho Regional de Odontologia (registro do dentista)|
+|RT|Responsável Técnico — frequentemente é o dono da clínica|
+|Handle|Username no Instagram (sem @)|
+|Place ID|ID único de local no Google Maps/Places|
+|Tenant|Conta/empresa no SaaS. Multi-tenant = cada um vê só seus dados|
+
+### Particularidades do Mercado Brasileiro
+
+* Instagram é o principal canal de marketing de clínicas. Muitas não têm site.
+* Dono é geralmente dentista que atende — pode ser só "Dr. Fulano" na bio, sem "CEO/Diretor".
+* Clínicas de estética: médicos, biomédicos, esteticistas, enfermeiros — variado.
+* "Harmonização facial" explodiu nos últimos anos — muitas clínicas novas.
+* WhatsApp é o canal dominante. WhatsApp do decisor > email.
+* Muitas clínicas operam sem CNPJ formal. Não exigir como obrigatório.
+
+### Métricas de Sucesso (v1)
+
+|Métrica|Meta|
+|-|-|
+|Clínicas por campanha|≥50 (cidades médias)|
+|Taxa decisores encontrados|≥40% das clínicas|
+|Quality score médio|≥0.55|
+|Tempo de campanha (200 clínicas)|<15min|
+|Churn mensal|<5%|
+
+\---
+
+## 15\. ROADMAP TÉCNICO
+
+### v0.1 — MVP
+
+* \[ ] Auth (register, login, JWT)
+* \[ ] CRUD campanhas (cidade + segmento)
+* \[ ] Scraper Google Places
+* \[ ] Listagem de clínicas
+* \[ ] Exportação CSV
+* \[ ] Landing page + pricing + Stripe (1 plano pago)
+
+### v0.2 — Enriquecimento
+
+* \[ ] Scraper Instagram (perfil da clínica)
+* \[ ] Extração de decisores (bio/website)
+* \[ ] Classificação de cargos via LLM
+* \[ ] Quality score + deduplicação
+
+### v0.3 — Experiência Completa
+
+* \[ ] Dashboard com métricas
+* \[ ] Filtros avançados, tags, listas manuais
+* \[ ] Exportação XLSX
+* \[ ] Múltiplos planos + multi-user por tenant
+
+### v0.4 — Growth
+
+* \[ ] API pública + webhooks
+* \[ ] Mapa de clínicas
+* \[ ] Re-scraping automático
+* \[ ] Compliance LGPD (endpoint remoção)
+* \[ ] Relatórios e analytics
+
+\---
+
+## 16\. NOTAS PARA O CLAUDE CODE
+
+### Prioridades:
+
+1. **Segurança:** Multi-tenancy rigoroso, validação de input, auth em tudo.
+2. **Tipagem completa:** Pydantic backend, Zod frontend. Sem atalhos.
+3. **Testes em regras críticas:** Dedup, classificação de cargos, limites de plano, isolamento de tenants.
+4. **Scraping resiliente:** Retry, proxy, rate limit, circuit breaker. Log tudo.
+
+### Quando em dúvida:
+
+* Padrão não definido → Consulte este arquivo.
+* Impacta segurança/LGPD → Pergunte antes.
+* Scraper bloqueado → Pare, aumente delays, rotacione proxy. Nunca force.
+* Regra ambígua → Implemente versão conservadora e pergunte.
+
+### Formato preferido:
+
+* Respostas diretas e concisas. Mostre código, não parágrafos.
+* Se algo está errado, diga claramente o quê e por quê.
+* Use exemplos do domínio (clínicas, dentistas, contatos) em testes e seeds.
+

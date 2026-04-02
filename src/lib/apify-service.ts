@@ -7,19 +7,11 @@ const ACTORS: Record<string, string> = {
   linkedin: "apify/linkedin-profile-scraper",
 };
 
-// Lazy load ApifyClient to avoid bundler issues
-let clientInstance: any = null;
-
-async function getApifyClient() {
-  if (!clientInstance) {
-    const { ApifyClient } = await import("apify-client");
-    clientInstance = new ApifyClient({ token: process.env.APIFY_TOKEN });
-  }
-  return clientInstance;
-}
+const APIFY_API_BASE = "https://api.apify.com/v2";
 
 /**
  * Scrape prospects from Instagram or LinkedIn using Apify Actors
+ * Uses Apify REST API directly to avoid bundler issues
  * @param request - ScrapeRequest with platform, keyword, and limit
  * @returns Array of normalized Lead objects with partial data
  * @throws Error if Apify API fails or token is missing
@@ -39,17 +31,78 @@ export async function scrapeProspects(
   }
 
   try {
-    // Get Apify client instance
-    const client = await getApifyClient();
+    // Start the Actor run using REST API
+    const runResponse = await fetch(
+      `${APIFY_API_BASE}/acts/${actorId}/runs?token=${process.env.APIFY_TOKEN}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          searchTerms: [request.keyword],
+          maxItems: request.limit,
+        }),
+      }
+    );
 
-    // Call the Actor with the search term and result limit
-    const run = await client.actor(actorId).call({
-      searchTerms: [request.keyword],
-      maxItems: request.limit,
-    });
+    if (!runResponse.ok) {
+      throw new Error(
+        `Failed to start Actor run: ${runResponse.status} ${runResponse.statusText}`
+      );
+    }
 
-    // Fetch results from the default dataset
-    const { items } = await client.dataset(run.defaultDatasetId).listItems();
+    const runData = await runResponse.json();
+    const runId = runData.data.id;
+    const datasetId = runData.data.defaultDatasetId;
+
+    // Wait for the run to complete (with timeout)
+    let isRunning = true;
+    let attempts = 0;
+    const maxAttempts = 120; // 10 minutes max with 5-second intervals
+
+    while (isRunning && attempts < maxAttempts) {
+      const statusResponse = await fetch(
+        `${APIFY_API_BASE}/acts/${actorId}/runs/${runId}?token=${process.env.APIFY_TOKEN}`
+      );
+
+      if (!statusResponse.ok) {
+        throw new Error(
+          `Failed to check run status: ${statusResponse.status} ${statusResponse.statusText}`
+        );
+      }
+
+      const statusData = await statusResponse.json();
+      const status = statusData.data.status;
+
+      if (status === "SUCCEEDED" || status === "FAILED") {
+        isRunning = false;
+        if (status === "FAILED") {
+          throw new Error(`Actor run failed: ${statusData.data.error}`);
+        }
+      } else {
+        // Wait 5 seconds before checking again
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        attempts++;
+      }
+    }
+
+    if (isRunning) {
+      throw new Error("Actor run timed out after 10 minutes");
+    }
+
+    // Fetch results from the dataset
+    const itemsResponse = await fetch(
+      `${APIFY_API_BASE}/datasets/${datasetId}/items?token=${process.env.APIFY_TOKEN}`
+    );
+
+    if (!itemsResponse.ok) {
+      throw new Error(
+        `Failed to fetch dataset items: ${itemsResponse.status} ${itemsResponse.statusText}`
+      );
+    }
+
+    const items = await itemsResponse.json();
 
     // Normalize the results to match our Lead interface
     return items.map((item: Record<string, unknown>) => ({

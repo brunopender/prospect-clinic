@@ -66,7 +66,7 @@ export function ScrapeModal({
         return;
       }
 
-      const result = await res.json();
+      await res.json();
       setSuccess(true);
 
       setTimeout(() => {

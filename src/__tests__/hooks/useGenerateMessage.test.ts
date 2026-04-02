@@ -11,7 +11,8 @@ describe("useGenerateMessage", () => {
   });
 
   it("should generate message successfully", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ message: "Generated message" }),
     });
@@ -25,7 +26,8 @@ describe("useGenerateMessage", () => {
   });
 
   it("should handle API error", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: false,
       json: async () => ({ error: "Failed to generate" }),
     });
@@ -41,7 +43,8 @@ describe("useGenerateMessage", () => {
   });
 
   it("should handle network error", async () => {
-    (global.fetch as any).mockRejectedValueOnce(new Error("Network error"));
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
     const { result } = renderHook(() => useGenerateMessage());
 
@@ -54,7 +57,8 @@ describe("useGenerateMessage", () => {
   });
 
   it("should call correct endpoint", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ message: "Test" }),
     });
@@ -70,8 +74,9 @@ describe("useGenerateMessage", () => {
   });
 
   it("should reset error on successful request", async () => {
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
     // First call with error
-    (global.fetch as any).mockResolvedValueOnce({
+    mockFetch.mockResolvedValueOnce({
       ok: false,
       json: async () => ({ error: "First error" }),
     });
@@ -84,7 +89,7 @@ describe("useGenerateMessage", () => {
     });
 
     // Second call should reset error
-    (global.fetch as any).mockResolvedValueOnce({
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ message: "Success" }),
     });

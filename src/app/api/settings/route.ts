@@ -48,7 +48,6 @@ export async function POST(request: NextRequest) {
 
     // Atualizar variáveis (substituindo ou adicionando)
     const lines = envContent.split("\n").filter((line) => line.trim());
-    const updated = new Set<string>();
 
     const updateOrAdd = (key: string, value: string) => {
       let found = false;

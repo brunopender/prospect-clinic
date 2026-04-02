@@ -36,7 +36,8 @@ describe("useLeads", () => {
   });
 
   it("should fetch leads successfully", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [mockLead1, mockLead2],
     });
@@ -52,7 +53,8 @@ describe("useLeads", () => {
   });
 
   it("should sort leads by createdAt descending", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [mockLead1, mockLead2],
     });
@@ -68,7 +70,8 @@ describe("useLeads", () => {
   });
 
   it("should pass filters as query params", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [mockLead1],
     });
@@ -90,7 +93,8 @@ describe("useLeads", () => {
   });
 
   it("should handle fetch error", async () => {
-    (global.fetch as any).mockResolvedValueOnce({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
       ok: false,
       json: async () => ({ error: "Not found" }),
     });
@@ -106,7 +110,8 @@ describe("useLeads", () => {
   });
 
   it("should handle network error", async () => {
-    (global.fetch as any).mockRejectedValueOnce(new Error("Network error"));
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
     const { result } = renderHook(() => useLeads());
 
@@ -118,7 +123,8 @@ describe("useLeads", () => {
   });
 
   it("should provide refetch function", async () => {
-    (global.fetch as any).mockResolvedValue({
+    const mockFetch = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => [mockLead1],
     });

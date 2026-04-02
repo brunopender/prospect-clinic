@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { Lead, LeadStatus, Platform } from "@/types/lead";
 
 interface Filters {
@@ -14,7 +14,7 @@ export function useLeads(filters?: Filters) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchLeads = async () => {
+  const fetchLeads = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -44,11 +44,11 @@ export function useLeads(filters?: Filters) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
   useEffect(() => {
     fetchLeads();
-  }, [filters?.platform, filters?.status]);
+  }, [fetchLeads]);
 
   return { leads, loading, error, refetch: fetchLeads };
 }

@@ -1,37 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ScrapeRequest } from "@/types/scrape";
-
-// Mock the apify-client module - must be before import
-const mockListItems = vi.fn();
-const mockCall = vi.fn();
-
-vi.mock("apify-client", () => {
-  return {
-    ApifyClient: vi.fn(function mockApifyClient() {
-      return {
-        actor: vi.fn(() => ({
-          call: mockCall,
-        })),
-        dataset: vi.fn(() => ({
-          listItems: mockListItems,
-        })),
-      };
-    }),
-  };
-});
-
-// Import after mocking
 import { scrapeProspects } from "@/lib/apify-service";
 
 describe("ApifyService", () => {
   beforeEach(() => {
-    // Clear environment variable before each test
     delete process.env.APIFY_TOKEN;
     vi.clearAllMocks();
+    // Mock global fetch
+    global.fetch = vi.fn();
   });
 
   afterEach(() => {
     delete process.env.APIFY_TOKEN;
+    vi.restoreAllMocks();
   });
 
   it("should throw error when APIFY_TOKEN is not set", async () => {
@@ -78,11 +59,26 @@ describe("ApifyService", () => {
       },
     ];
 
-    mockCall.mockResolvedValue({
-      defaultDatasetId: "dataset-123",
-    });
-
-    mockListItems.mockResolvedValue({ items: mockInstagramData });
+    // Mock the run API call
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: "run-123", defaultDatasetId: "dataset-123", status: "SUCCEEDED" },
+        }),
+      })
+      // Mock the status check
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { status: "SUCCEEDED" },
+        }),
+      })
+      // Mock the items fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockInstagramData,
+      });
 
     const request: ScrapeRequest = {
       platform: "instagram",
@@ -121,11 +117,23 @@ describe("ApifyService", () => {
       },
     ];
 
-    mockCall.mockResolvedValue({
-      defaultDatasetId: "dataset-456",
-    });
-
-    mockListItems.mockResolvedValue({ items: mockLinkedInData });
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: "run-456", defaultDatasetId: "dataset-456", status: "SUCCEEDED" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { status: "SUCCEEDED" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockLinkedInData,
+      });
 
     const request: ScrapeRequest = {
       platform: "linkedin",
@@ -150,18 +158,27 @@ describe("ApifyService", () => {
 
     const mockDataWithMissingFields = [
       {
-        // Missing fullName and name - should use ""
         url: "https://instagram.com/user",
-        // Missing biography and summary - should use ""
-        // Missing followersCount and connectionsCount - should use 0
       },
     ];
 
-    mockCall.mockResolvedValue({
-      defaultDatasetId: "dataset-789",
-    });
-
-    mockListItems.mockResolvedValue({ items: mockDataWithMissingFields });
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: "run-789", defaultDatasetId: "dataset-789", status: "SUCCEEDED" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { status: "SUCCEEDED" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockDataWithMissingFields,
+      });
 
     const request: ScrapeRequest = {
       platform: "instagram",
@@ -183,7 +200,11 @@ describe("ApifyService", () => {
   it("should throw error when Apify API fails", async () => {
     process.env.APIFY_TOKEN = "test-token";
 
-    mockCall.mockRejectedValue(new Error("API rate limit exceeded"));
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+    });
 
     const request: ScrapeRequest = {
       platform: "instagram",
@@ -192,7 +213,7 @@ describe("ApifyService", () => {
     };
 
     await expect(scrapeProspects(request)).rejects.toThrow(
-      "Apify scraping failed: API rate limit exceeded"
+      "Apify scraping failed: Failed to start Actor run"
     );
   });
 });

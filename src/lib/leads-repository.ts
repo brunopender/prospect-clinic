@@ -14,31 +14,66 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Database column names are all lowercase (PostgreSQL default)
+// TypeScript uses camelCase — these helpers convert between formats
+
+type DbRow = {
+  id: string;
+  name: string;
+  profileurl: string;
+  platform: string;
+  bio: string;
+  followerscount: number;
+  status: string;
+  message: string | null;
+  createdat: string;
+};
+
+function dbRowToLead(row: DbRow): Lead {
+  return {
+    id: row.id,
+    name: row.name,
+    profileUrl: row.profileurl,
+    platform: row.platform as Lead["platform"],
+    bio: row.bio,
+    followersCount: row.followerscount,
+    status: row.status as Lead["status"],
+    message: row.message,
+    createdAt: row.createdat,
+  };
+}
+
+function leadToDbRow(lead: Lead): DbRow {
+  return {
+    id: lead.id,
+    name: lead.name,
+    profileurl: lead.profileUrl,
+    platform: lead.platform,
+    bio: lead.bio,
+    followerscount: lead.followersCount,
+    status: lead.status,
+    message: lead.message,
+    createdat: lead.createdAt,
+  };
+}
+
 /**
  * Ensure leads table exists in Supabase
  */
 async function ensureTable(): Promise<void> {
   try {
-    // Try to read from the table to check if it exists
     const { error } = await supabase
       .from("leads")
       .select("id")
       .limit(1);
 
-    // If table doesn't exist, create it
     if (error?.code === "PGRST204" || error?.message?.includes("does not exist")) {
-      console.log("[leadsRepository] Creating leads table...");
-
-      // Note: Table creation via API isn't directly possible
-      // User must create via Supabase dashboard or we throw error
       throw new Error(
-        "Leads table not found. Please create it in Supabase dashboard with columns: id (uuid), name (text), profileUrl (text unique), platform (text), bio (text), followersCount (int), status (text), message (text null), createdAt (timestamp)"
+        "Leads table not found. Please create it in Supabase dashboard."
       );
     }
   } catch (error: any) {
-    // If it's a permission error, table probably exists
     if (error?.code === "42501") {
-      console.log("[leadsRepository] Table exists, permission error (expected)");
       return;
     }
     throw error;
@@ -67,7 +102,7 @@ export const leadsRepository = {
       query = query.eq("status", filters.status);
     }
 
-    const { data, error } = await query.order("createdAt", {
+    const { data, error } = await query.order("createdat", {
       ascending: false,
     });
 
@@ -76,7 +111,7 @@ export const leadsRepository = {
       throw error;
     }
 
-    return (data || []) as Lead[];
+    return (data || []).map((row: any) => dbRowToLead(row));
   },
 
   /**
@@ -92,7 +127,6 @@ export const leadsRepository = {
       .single();
 
     if (error?.code === "PGRST116") {
-      // Row not found
       return null;
     }
 
@@ -101,7 +135,7 @@ export const leadsRepository = {
       throw error;
     }
 
-    return (data as Lead) || null;
+    return data ? dbRowToLead(data as any) : null;
   },
 
   /**
@@ -112,25 +146,19 @@ export const leadsRepository = {
   ): Promise<{ inserted: boolean }> => {
     await ensureTable();
 
-    console.log(`[leadsRepository.upsert] Checking for duplicate:`, { profileUrl: partial.profileUrl });
-
     // Check if lead with same profileUrl already exists
     const { data: existing, error: checkError } = await supabase
       .from("leads")
       .select("id")
-      .eq("profileUrl", partial.profileUrl)
+      .eq("profileurl", partial.profileUrl)
       .single();
 
-    if (checkError) {
-      // PGRST116 means "not found" which is expected if lead doesn't exist
-      if (checkError.code !== "PGRST116") {
-        console.error("[leadsRepository.upsert] Error checking for duplicate:", checkError);
-        throw checkError;
-      }
+    if (checkError && checkError.code !== "PGRST116") {
+      console.error("[leadsRepository.upsert] Duplicate check error:", checkError);
+      throw checkError;
     }
 
     if (existing) {
-      console.log(`[leadsRepository.upsert] Lead already exists:`, existing);
       return { inserted: false };
     }
 
@@ -143,24 +171,17 @@ export const leadsRepository = {
       createdAt: new Date().toISOString(),
     };
 
-    console.log(`[leadsRepository.upsert] Inserting new lead:`, newLead);
+    const dbRow = leadToDbRow(newLead);
 
     const { error } = await supabase
       .from("leads")
-      .insert([newLead]);
+      .insert([dbRow]);
 
     if (error) {
-      console.error("[leadsRepository.upsert] Insert error:", {
-        message: error.message,
-        code: error.code,
-        hint: error.hint,
-        details: error.details,
-        leadData: newLead,
-      });
+      console.error("[leadsRepository.upsert] Insert error:", error.message);
       throw error;
     }
 
-    console.log(`[leadsRepository.upsert] Successfully inserted lead`);
     return { inserted: true };
   },
 
@@ -173,9 +194,19 @@ export const leadsRepository = {
   ): Promise<Lead | null> => {
     await ensureTable();
 
+    // Convert camelCase patch to lowercase db columns
+    const dbPatch: Record<string, unknown> = {};
+    if (patch.name !== undefined) dbPatch.name = patch.name;
+    if (patch.profileUrl !== undefined) dbPatch.profileurl = patch.profileUrl;
+    if (patch.platform !== undefined) dbPatch.platform = patch.platform;
+    if (patch.bio !== undefined) dbPatch.bio = patch.bio;
+    if (patch.followersCount !== undefined) dbPatch.followerscount = patch.followersCount;
+    if (patch.status !== undefined) dbPatch.status = patch.status;
+    if (patch.message !== undefined) dbPatch.message = patch.message;
+
     const { data, error } = await supabase
       .from("leads")
-      .update(patch)
+      .update(dbPatch)
       .eq("id", id)
       .select()
       .single();
@@ -189,7 +220,7 @@ export const leadsRepository = {
       throw error;
     }
 
-    return (data as Lead) || null;
+    return data ? dbRowToLead(data as any) : null;
   },
 
   /**

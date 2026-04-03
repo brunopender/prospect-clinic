@@ -69,19 +69,30 @@ export async function POST(request: NextRequest) {
     let errors = 0;
     const savedLeads = [];
 
-    for (const lead of scrapedLeads) {
+    console.log(`[POST /api/scrape] Starting to process ${scrapedLeads.length} leads from Apify`);
+
+    for (let i = 0; i < scrapedLeads.length; i++) {
+      const lead = scrapedLeads[i];
       try {
+        console.log(`[POST /api/scrape] Processing lead ${i + 1}/${scrapedLeads.length}:`, {
+          name: lead.name,
+          profileUrl: lead.profileUrl,
+          platform: lead.platform,
+          bio: lead.bio,
+          followersCount: lead.followersCount,
+        });
+
         // Validate platform is valid
         if (!lead.platform || !["instagram", "linkedin"].includes(lead.platform)) {
           errors++;
-          console.error("[POST /api/scrape] Invalid platform:", lead.platform);
+          console.error(`[POST /api/scrape] Lead ${i + 1}: Invalid platform:`, lead.platform);
           continue;
         }
 
         // Skip leads without profileUrl (required for deduplication)
         if (!lead.profileUrl) {
           errors++;
-          console.error("[POST /api/scrape] Missing profileUrl for:", lead.name);
+          console.error(`[POST /api/scrape] Lead ${i + 1}: Missing profileUrl for:`, lead.name);
           continue;
         }
 
@@ -94,9 +105,14 @@ export async function POST(request: NextRequest) {
           followersCount: lead.followersCount || 0,
         };
 
+        console.log(`[POST /api/scrape] Lead ${i + 1}: Attempting upsert...`, leadForUpsert);
         const result = await leadsRepository.upsert(leadForUpsert);
+
+        console.log(`[POST /api/scrape] Lead ${i + 1}: Upsert result:`, result);
+
         if (result.inserted) {
           imported++;
+          console.log(`[POST /api/scrape] Lead ${i + 1}: Successfully imported`);
           // Get the full saved lead object
           const allLeads = await leadsRepository.getAll();
           const savedLead = allLeads.find(
@@ -104,15 +120,30 @@ export async function POST(request: NextRequest) {
           );
           if (savedLead) {
             savedLeads.push(savedLead);
+            console.log(`[POST /api/scrape] Lead ${i + 1}: Added to results`);
           }
         } else {
           skipped++;
+          console.log(`[POST /api/scrape] Lead ${i + 1}: Skipped (already exists)`);
         }
       } catch (error) {
         errors++;
-        console.error("[POST /api/scrape] Lead save error:", error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : "no stack";
+        console.error(`[POST /api/scrape] Lead ${i + 1}: ERROR during save:`, {
+          message: errorMsg,
+          stack: errorStack,
+          leadData: lead,
+        });
       }
     }
+
+    console.log(`[POST /api/scrape] Processing complete:`, {
+      total: scrapedLeads.length,
+      imported,
+      skipped,
+      errors,
+    });
 
     // Return results with import statistics
     return NextResponse.json(

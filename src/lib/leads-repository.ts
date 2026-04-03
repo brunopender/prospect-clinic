@@ -112,14 +112,25 @@ export const leadsRepository = {
   ): Promise<{ inserted: boolean }> => {
     await ensureTable();
 
+    console.log(`[leadsRepository.upsert] Checking for duplicate:`, { profileUrl: partial.profileUrl });
+
     // Check if lead with same profileUrl already exists
-    const { data: existing } = await supabase
+    const { data: existing, error: checkError } = await supabase
       .from("leads")
       .select("id")
       .eq("profileUrl", partial.profileUrl)
       .single();
 
+    if (checkError) {
+      // PGRST116 means "not found" which is expected if lead doesn't exist
+      if (checkError.code !== "PGRST116") {
+        console.error("[leadsRepository.upsert] Error checking for duplicate:", checkError);
+        throw checkError;
+      }
+    }
+
     if (existing) {
+      console.log(`[leadsRepository.upsert] Lead already exists:`, existing);
       return { inserted: false };
     }
 
@@ -132,15 +143,24 @@ export const leadsRepository = {
       createdAt: new Date().toISOString(),
     };
 
+    console.log(`[leadsRepository.upsert] Inserting new lead:`, newLead);
+
     const { error } = await supabase
       .from("leads")
       .insert([newLead]);
 
     if (error) {
-      console.error("[leadsRepository.upsert]", error);
+      console.error("[leadsRepository.upsert] Insert error:", {
+        message: error.message,
+        code: error.code,
+        hint: error.hint,
+        details: error.details,
+        leadData: newLead,
+      });
       throw error;
     }
 
+    console.log(`[leadsRepository.upsert] Successfully inserted lead`);
     return { inserted: true };
   },
 

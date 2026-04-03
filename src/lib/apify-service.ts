@@ -120,6 +120,11 @@ export async function scrapeProspects(
 
     const items = await itemsResponse.json();
 
+    console.log(`[scrapeProspects] Raw response from Apify (${request.platform}):`, {
+      itemCount: items.length,
+      firstItem: items[0],
+    });
+
     // Normalize results based on platform
     if (request.platform === "instagram") {
       // Instagram hashtag scraper returns posts - extract unique poster accounts
@@ -127,28 +132,40 @@ export async function scrapeProspects(
 
       items.forEach((post: Record<string, unknown>) => {
         const ownerUsername = post.ownerUsername as string;
+        console.log(`[scrapeProspects] Instagram post:`, {
+          ownerUsername,
+          ownerFullName: post.ownerFullName,
+          postTitle: post.postTitle,
+        });
+
         if (ownerUsername && !uniqueOwners.has(ownerUsername)) {
-          uniqueOwners.set(ownerUsername, {
+          const lead = {
             name: (post.ownerFullName as string) ?? ownerUsername ?? "",
             profileUrl: `https://www.instagram.com/${ownerUsername}`,
-            platform: "instagram",
-            bio: "", // Hashtag scraper doesn't return bio
-            followersCount: 0, // Hashtag scraper doesn't return follower count
-          });
+            platform: "instagram" as const,
+            bio: "",
+            followersCount: 0,
+          };
+          console.log(`[scrapeProspects] Adding unique owner:`, lead);
+          uniqueOwners.set(ownerUsername, lead);
         }
       });
 
-      return Array.from(uniqueOwners.values()).slice(0, request.limit);
+      const result = Array.from(uniqueOwners.values()).slice(0, request.limit);
+      console.log(`[scrapeProspects] Returning ${result.length} unique Instagram leads`);
+      return result;
     } else {
       // LinkedIn profile scraper returns profiles directly
-      return items.map((item: Record<string, unknown>) => ({
+      const result = items.map((item: Record<string, unknown>) => ({
         name: (item.fullName as string) ?? (item.name as string) ?? "",
         profileUrl: (item.url as string) ?? (item.profileUrl as string) ?? "",
-        platform: "linkedin",
+        platform: "linkedin" as const,
         bio: (item.biography as string) ?? (item.summary as string) ?? "",
         followersCount:
           (item.followersCount as number) ?? (item.connectionsCount as number) ?? 0,
       }));
+      console.log(`[scrapeProspects] Returning ${result.length} LinkedIn leads`);
+      return result;
     }
   } catch (error) {
     // Re-throw with context for debugging

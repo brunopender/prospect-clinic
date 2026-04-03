@@ -77,7 +77,7 @@ export async function scrapeProspects(
 
     while (isRunning && attempts < maxAttempts) {
       const statusResponse = await fetch(
-        `${APIFY_API_BASE}/runs/${runId}?token=${process.env.APIFY_TOKEN}`
+        `${APIFY_API_BASE}/actor-runs/${runId}?token=${process.env.APIFY_TOKEN}`
       );
 
       if (!statusResponse.ok) {

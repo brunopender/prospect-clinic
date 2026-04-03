@@ -1,9 +1,9 @@
 import type { ScrapeRequest } from "@/types/scrape";
 import type { Lead } from "@/types/lead";
 
-// Actor IDs for each platform - using correct Apify syntax with tilde
+// Actor IDs for each platform
 const ACTORS: Record<string, string> = {
-  instagram: "apify~instagram-profile-scraper",
+  instagram: "apify~instagram-hashtag-scraper",
   linkedin: "apify~linkedin-profile-scraper",
 };
 
@@ -11,7 +11,8 @@ const APIFY_API_BASE = "https://api.apify.com/v2";
 
 /**
  * Scrape prospects from Instagram or LinkedIn using Apify Actors
- * Uses Apify REST API directly to avoid bundler issues
+ * - Instagram: Uses hashtag scraper to find posts with keyword, extracts poster accounts
+ * - LinkedIn: Uses profile scraper to search for keyword profiles
  * @param request - ScrapeRequest with platform, keyword, and limit
  * @returns Array of normalized Lead objects with partial data
  * @throws Error if Apify API fails or token is missing
@@ -35,12 +36,13 @@ export async function scrapeProspects(
     let inputPayload: Record<string, unknown>;
 
     if (request.platform === "instagram") {
+      // Instagram uses hashtag scraper to search by keyword
       inputPayload = {
-        usernames: [request.keyword],
-        maxResults: request.limit,
+        hashtags: [request.keyword],
+        maxPosts: request.limit,
       };
     } else {
-      // LinkedIn
+      // LinkedIn uses profile scraper
       inputPayload = {
         searchTerms: [request.keyword],
         maxResults: request.limit,
@@ -118,15 +120,36 @@ export async function scrapeProspects(
 
     const items = await itemsResponse.json();
 
-    // Normalize the results to match our Lead interface
-    return items.map((item: Record<string, unknown>) => ({
-      name: (item.fullName as string) ?? (item.name as string) ?? (item.title as string) ?? "",
-      profileUrl: (item.url as string) ?? (item.profileUrl as string) ?? (item.link as string) ?? "",
-      platform: request.platform,
-      bio: (item.biography as string) ?? (item.summary as string) ?? (item.about as string) ?? "",
-      followersCount:
-        (item.followersCount as number) ?? (item.connectionsCount as number) ?? (item.followers as number) ?? 0,
-    }));
+    // Normalize results based on platform
+    if (request.platform === "instagram") {
+      // Instagram hashtag scraper returns posts - extract unique poster accounts
+      const uniqueOwners = new Map<string, Partial<Lead>>();
+
+      items.forEach((post: Record<string, unknown>) => {
+        const ownerUsername = post.ownerUsername as string;
+        if (ownerUsername && !uniqueOwners.has(ownerUsername)) {
+          uniqueOwners.set(ownerUsername, {
+            name: (post.ownerFullName as string) ?? ownerUsername ?? "",
+            profileUrl: `https://www.instagram.com/${ownerUsername}`,
+            platform: "instagram",
+            bio: "", // Hashtag scraper doesn't return bio
+            followersCount: 0, // Hashtag scraper doesn't return follower count
+          });
+        }
+      });
+
+      return Array.from(uniqueOwners.values()).slice(0, request.limit);
+    } else {
+      // LinkedIn profile scraper returns profiles directly
+      return items.map((item: Record<string, unknown>) => ({
+        name: (item.fullName as string) ?? (item.name as string) ?? "",
+        profileUrl: (item.url as string) ?? (item.profileUrl as string) ?? "",
+        platform: "linkedin",
+        bio: (item.biography as string) ?? (item.summary as string) ?? "",
+        followersCount:
+          (item.followersCount as number) ?? (item.connectionsCount as number) ?? 0,
+      }));
+    }
   } catch (error) {
     // Re-throw with context for debugging
     if (error instanceof Error) {

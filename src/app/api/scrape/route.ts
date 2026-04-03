@@ -74,13 +74,21 @@ export async function POST(request: NextRequest) {
         // Validate platform is valid
         if (!lead.platform || !["instagram", "linkedin"].includes(lead.platform)) {
           errors++;
+          console.error("[POST /api/scrape] Invalid platform:", lead.platform);
+          continue;
+        }
+
+        // Skip leads without profileUrl (required for deduplication)
+        if (!lead.profileUrl) {
+          errors++;
+          console.error("[POST /api/scrape] Missing profileUrl for:", lead.name);
           continue;
         }
 
         // Ensure all required fields are present (cast to full Lead without id/status/message/createdAt)
         const leadForUpsert = {
           name: lead.name || "",
-          profileUrl: lead.profileUrl || "",
+          profileUrl: lead.profileUrl,
           platform: lead.platform as "instagram" | "linkedin",
           bio: lead.bio || "",
           followersCount: lead.followersCount || 0,

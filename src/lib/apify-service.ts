@@ -1,10 +1,10 @@
 import type { ScrapeRequest } from "@/types/scrape";
 import type { Lead } from "@/types/lead";
 
-// Actor IDs for each platform
+// Actor IDs for each platform - using correct Apify syntax with tilde
 const ACTORS: Record<string, string> = {
-  instagram: "apify/instagram-profile-scraper",
-  linkedin: "apify/linkedin-profile-scraper",
+  instagram: "apify~instagram-profile-scraper",
+  linkedin: "apify~linkedin-profile-scraper",
 };
 
 const APIFY_API_BASE = "https://api.apify.com/v2";
@@ -31,6 +31,22 @@ export async function scrapeProspects(
   }
 
   try {
+    // Prepare input based on platform
+    let inputPayload: Record<string, unknown>;
+
+    if (request.platform === "instagram") {
+      inputPayload = {
+        usernames: [request.keyword],
+        maxResults: request.limit,
+      };
+    } else {
+      // LinkedIn
+      inputPayload = {
+        searchTerms: [request.keyword],
+        maxResults: request.limit,
+      };
+    }
+
     // Start the Actor run using REST API
     const runResponse = await fetch(
       `${APIFY_API_BASE}/acts/${actorId}/runs?token=${process.env.APIFY_TOKEN}`,
@@ -39,16 +55,14 @@ export async function scrapeProspects(
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          searchTerms: [request.keyword],
-          maxItems: request.limit,
-        }),
+        body: JSON.stringify(inputPayload),
       }
     );
 
     if (!runResponse.ok) {
+      const errorText = await runResponse.text();
       throw new Error(
-        `Failed to start Actor run: ${runResponse.status} ${runResponse.statusText}`
+        `Failed to start Actor run: ${runResponse.status} - ${errorText}`
       );
     }
 
@@ -59,11 +73,11 @@ export async function scrapeProspects(
     // Wait for the run to complete (with timeout)
     let isRunning = true;
     let attempts = 0;
-    const maxAttempts = 120; // 10 minutes max with 5-second intervals
+    const maxAttempts = 360; // 30 minutes max with 5-second intervals
 
     while (isRunning && attempts < maxAttempts) {
       const statusResponse = await fetch(
-        `${APIFY_API_BASE}/acts/${actorId}/runs/${runId}?token=${process.env.APIFY_TOKEN}`
+        `${APIFY_API_BASE}/runs/${runId}?token=${process.env.APIFY_TOKEN}`
       );
 
       if (!statusResponse.ok) {
@@ -78,7 +92,7 @@ export async function scrapeProspects(
       if (status === "SUCCEEDED" || status === "FAILED") {
         isRunning = false;
         if (status === "FAILED") {
-          throw new Error(`Actor run failed: ${statusData.data.error}`);
+          throw new Error(`Actor run failed: ${statusData.data.error || "Unknown error"}`);
         }
       } else {
         // Wait 5 seconds before checking again
@@ -88,7 +102,7 @@ export async function scrapeProspects(
     }
 
     if (isRunning) {
-      throw new Error("Actor run timed out after 10 minutes");
+      throw new Error("Actor run timed out after 30 minutes");
     }
 
     // Fetch results from the dataset
@@ -106,12 +120,12 @@ export async function scrapeProspects(
 
     // Normalize the results to match our Lead interface
     return items.map((item: Record<string, unknown>) => ({
-      name: (item.fullName as string) ?? (item.name as string) ?? "",
-      profileUrl: (item.url as string) ?? (item.profileUrl as string) ?? "",
+      name: (item.fullName as string) ?? (item.name as string) ?? (item.title as string) ?? "",
+      profileUrl: (item.url as string) ?? (item.profileUrl as string) ?? (item.link as string) ?? "",
       platform: request.platform,
-      bio: (item.biography as string) ?? (item.summary as string) ?? "",
+      bio: (item.biography as string) ?? (item.summary as string) ?? (item.about as string) ?? "",
       followersCount:
-        (item.followersCount as number) ?? (item.connectionsCount as number) ?? 0,
+        (item.followersCount as number) ?? (item.connectionsCount as number) ?? (item.followers as number) ?? 0,
     }));
   } catch (error) {
     // Re-throw with context for debugging

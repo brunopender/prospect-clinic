@@ -3,7 +3,11 @@ import { existsSync } from "fs";
 import { v4 as uuidv4 } from "uuid";
 import type { Lead, LeadsStore } from "@/types/lead";
 
-const DATA_PATH = "data/leads.json";
+// Use /tmp for Vercel (filesystem is read-only except for /tmp)
+// For local development, this also works fine
+const DATA_PATH = process.env.NODE_ENV === 'production'
+  ? '/tmp/leads.json'
+  : 'data/leads.json';
 
 /**
  * Read leads store from JSON file

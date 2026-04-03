@@ -1,55 +1,52 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
-import { existsSync } from "fs";
+import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import type { Lead, LeadsStore } from "@/types/lead";
 
-// Use /tmp for Vercel (filesystem is read-only except for /tmp)
-// For local development, this also works fine
-const DATA_PATH = process.env.NODE_ENV === 'production'
-  ? '/tmp/leads.json'
-  : 'data/leads.json';
+// Initialize Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-/**
- * Read leads store from JSON file
- * @returns LeadsStore object with leads array and updatedAt timestamp
- */
-async function read(): Promise<LeadsStore> {
-  if (!existsSync(DATA_PATH)) {
-    return { leads: [], updatedAt: new Date().toISOString() };
-  }
-
-  try {
-    const raw = await readFile(DATA_PATH, "utf-8");
-    return JSON.parse(raw) as LeadsStore;
-  } catch (error) {
-    console.error("[leadsRepository.read]", error);
-    // Return empty store if JSON is invalid
-    return { leads: [], updatedAt: new Date().toISOString() };
-  }
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    "Missing Supabase credentials. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  );
 }
 
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
 /**
- * Write leads store to JSON file
- * @param store LeadsStore object to persist
+ * Ensure leads table exists in Supabase
  */
-async function write(store: LeadsStore): Promise<void> {
+async function ensureTable(): Promise<void> {
   try {
-    // Create data directory if it doesn't exist
-    await mkdir("data", { recursive: true });
+    // Try to read from the table to check if it exists
+    const { error } = await supabase
+      .from("leads")
+      .select("id")
+      .limit(1);
 
-    // Update the timestamp
-    store.updatedAt = new Date().toISOString();
+    // If table doesn't exist, create it
+    if (error?.code === "PGRST204" || error?.message?.includes("does not exist")) {
+      console.log("[leadsRepository] Creating leads table...");
 
-    // Write JSON with 2-space indentation for readability
-    await writeFile(DATA_PATH, JSON.stringify(store, null, 2), "utf-8");
-  } catch (error) {
-    console.error("[leadsRepository.write]", error);
+      // Note: Table creation via API isn't directly possible
+      // User must create via Supabase dashboard or we throw error
+      throw new Error(
+        "Leads table not found. Please create it in Supabase dashboard with columns: id (uuid), name (text), profileUrl (text unique), platform (text), bio (text), followersCount (int), status (text), message (text null), createdAt (timestamp)"
+      );
+    }
+  } catch (error: any) {
+    // If it's a permission error, table probably exists
+    if (error?.code === "42501") {
+      console.log("[leadsRepository] Table exists, permission error (expected)");
+      return;
+    }
     throw error;
   }
 }
 
 /**
- * Leads repository - singleton for managing lead data
+ * Leads repository - singleton for managing lead data with Supabase
  */
 export const leadsRepository = {
   /**
@@ -58,88 +55,139 @@ export const leadsRepository = {
   getAll: async (
     filters?: Partial<Pick<Lead, "platform" | "status">>
   ): Promise<Lead[]> => {
-    const { leads } = await read();
+    await ensureTable();
 
-    return leads.filter(
-      (lead) =>
-        (!filters?.platform || lead.platform === filters.platform) &&
-        (!filters?.status || lead.status === filters.status)
-    );
+    let query = supabase.from("leads").select("*");
+
+    if (filters?.platform) {
+      query = query.eq("platform", filters.platform);
+    }
+
+    if (filters?.status) {
+      query = query.eq("status", filters.status);
+    }
+
+    const { data, error } = await query.order("createdAt", {
+      ascending: false,
+    });
+
+    if (error) {
+      console.error("[leadsRepository.getAll]", error);
+      throw error;
+    }
+
+    return (data || []) as Lead[];
   },
 
   /**
    * Get a single lead by ID
-   * @param id UUID of the lead
-   * @returns Lead object or null if not found
    */
   getById: async (id: string): Promise<Lead | null> => {
-    const { leads } = await read();
-    return leads.find((l) => l.id === id) ?? null;
+    await ensureTable();
+
+    const { data, error } = await supabase
+      .from("leads")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error?.code === "PGRST116") {
+      // Row not found
+      return null;
+    }
+
+    if (error) {
+      console.error("[leadsRepository.getById]", error);
+      throw error;
+    }
+
+    return (data as Lead) || null;
   },
 
   /**
    * Insert or skip lead if duplicate (by profileUrl)
-   * @param partial Lead data without id, status, message, createdAt
-   * @returns Object with inserted boolean flag
    */
   upsert: async (
     partial: Omit<Lead, "id" | "status" | "message" | "createdAt">
   ): Promise<{ inserted: boolean }> => {
-    try {
-      const store = await read();
+    await ensureTable();
 
-      // Check if lead with same profileUrl already exists
-      const exists = store.leads.find(
-        (lead) => lead.profileUrl === partial.profileUrl
-      );
-      if (exists) {
-        return { inserted: false };
-      }
+    // Check if lead with same profileUrl already exists
+    const { data: existing } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("profileUrl", partial.profileUrl)
+      .single();
 
-      // Create new lead with generated id and defaults
-      const newLead: Lead = {
-        ...partial,
-        id: uuidv4(),
-        status: "novo",
-        message: null,
-        createdAt: new Date().toISOString(),
-      };
+    if (existing) {
+      return { inserted: false };
+    }
 
-      store.leads.push(newLead);
-      await write(store);
+    // Create new lead with generated id and defaults
+    const newLead: Lead = {
+      ...partial,
+      id: uuidv4(),
+      status: "novo",
+      message: null,
+      createdAt: new Date().toISOString(),
+    };
 
-      return { inserted: true };
-    } catch (error) {
+    const { error } = await supabase
+      .from("leads")
+      .insert([newLead]);
+
+    if (error) {
       console.error("[leadsRepository.upsert]", error);
       throw error;
     }
+
+    return { inserted: true };
   },
 
   /**
    * Update a lead by ID
-   * @param id UUID of the lead
-   * @param patch Partial lead object with fields to update
-   * @returns Updated lead or null if not found
    */
-  update: async (
+  updateById: async (
     id: string,
-    patch: Partial<Lead>
+    patch: Partial<Omit<Lead, "id" | "createdAt">>
   ): Promise<Lead | null> => {
-    try {
-      const store = await read();
+    await ensureTable();
 
-      const idx = store.leads.findIndex((l) => l.id === id);
-      if (idx === -1) {
-        return null;
-      }
+    const { data, error } = await supabase
+      .from("leads")
+      .update(patch)
+      .eq("id", id)
+      .select()
+      .single();
 
-      store.leads[idx] = { ...store.leads[idx], ...patch };
-      await write(store);
+    if (error?.code === "PGRST116") {
+      return null;
+    }
 
-      return store.leads[idx];
-    } catch (error) {
-      console.error("[leadsRepository.update]", error);
+    if (error) {
+      console.error("[leadsRepository.updateById]", error);
       throw error;
     }
+
+    return (data as Lead) || null;
+  },
+
+  /**
+   * Delete a lead by ID
+   */
+  deleteById: async (id: string): Promise<boolean> => {
+    await ensureTable();
+
+    const { error } = await supabase
+      .from("leads")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("[leadsRepository.deleteById]", error);
+      throw error;
+    }
+
+    return true;
   },
 };

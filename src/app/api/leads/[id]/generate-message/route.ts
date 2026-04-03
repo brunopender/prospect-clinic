@@ -39,7 +39,7 @@ export async function POST(
     const message = await generateMessage(lead);
 
     // Save message to lead
-    await leadsRepository.update(id, { message });
+    await leadsRepository.updateById(id, { message });
 
     // Return generated message
     return NextResponse.json({ message }, { status: 200 });

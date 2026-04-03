@@ -28,7 +28,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await leadsRepository.update(id, {
+    const updated = await leadsRepository.updateById(id, {
       status: body.status,
     });
 
